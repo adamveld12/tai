@@ -1,0 +1,91 @@
+# Build artifacts
+build/
+dist/
+
+# Test and coverage files
+coverage.out
+coverage.html
+*.test
+*.cover
+*.prof
+
+# Air live reload temporary files
+tmp/
+
+# Go specific
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.vim/
+.emacs.d/
+.atom/
+.sublime-project
+.sublime-workspace
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Environment and configuration files
+.env
+.env.local
+.env.*.local
+config.local.*
+
+# Log files
+*.log
+logs/
+log/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+.temp/
+
+# Debug files
+debug
+pprof/
+*.pprof
+
+.claude/settings.local.json
+
+
+# Backup files
+*.bak
+*.backup
+
+# Archive files (if any build artifacts)
+*.tar.gz
+*.zip
+*.7z
+*.rar
+
+# Binary output from go build
+/tai
+tai-*
+
+# Testdata that shouldn't be tracked (if any)
+testdata/generated/

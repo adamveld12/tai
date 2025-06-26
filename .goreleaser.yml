@@ -1,0 +1,107 @@
+version: 2
+
+project_name: tai
+
+before:
+  hooks:
+    # Download dependencies
+    - go mod download
+    # Tidy dependencies
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    ignore:
+      - goos: windows
+        goarch: arm64
+    main: ./cmd/tai
+    binary: tai
+
+archives:
+  - format: tar.gz
+    # this name template makes the OS and Arch compatible with the results of `uname`.
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    # use zip for windows archives
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE.md
+
+checksum:
+  name_template: 'checksums.txt'
+
+snapshot:
+  name_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+
+release:
+  # If set to auto, will mark the release as not ready for production
+  # in case there is an indicator for this in the tag e.g. v1.0.0-rc1
+  # If set to true, will mark the release as not ready for production.
+  prerelease: auto
+
+  # What to do with the release notes in case there the release already exists.
+  #
+  # Valid options are:
+  # - `keep-existing`: keep the existing notes
+  # - `append`: append the current release notes to the existing notes
+  # - `prepend`: prepend the current release notes to the existing notes
+  # - `replace`: replace existing notes
+  mode: append
+
+  # Header template for the release body.
+  header: |
+    ## TAI (Terminal AI) {{ .Tag }}
+
+    Welcome to this new release of TAI!
+
+  # Footer template for the release body.
+  footer: |
+    ## Install
+
+    ### Download directly
+    Download the appropriate binary for your platform from the assets below.
+
+    ### Using Go
+    ```bash
+    go install github.com/adamveld12/tai/cmd/tai@{{ .Tag }}
+    ```
+
+    ### Build from source
+    ```bash
+    git clone https://github.com/adamveld12/tai.git
+    cd tai
+    git checkout {{ .Tag }}
+    make build
+    ```
+
+    **Full Changelog**: https://github.com/adamveld12/tai/compare/{{ .PreviousTag }}...{{ .Tag }}
+
+  # You can change the name of the release.
+  name_template: "{{.ProjectName}}-v{{.Version}}"
+
+  # You can disable this pipe in order to not create the release on any SCM.
+  # Keep in mind that this might also break things that depend on the release
+  # URL, for instance, homebrew taps.
+  disable: false
