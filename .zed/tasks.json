@@ -1,0 +1,22 @@
+[
+  {
+    "label": "Run tai",
+    "request": "launch",
+    "command": "make dev",
+    "allow_concurrent_runs": false,
+    "cwd": "${ZED_WORKTREE_ROOT}",
+    "reveal": "always",
+    "use_new_terminal": true
+  },
+
+  {
+    "label": "Test",
+    "request": "launch",
+    "command": "make test",
+    "allow_concurrent_runs": false,
+    "cwd": "${ZED_WORKTREE_ROOT}",
+    "reveal": "always",
+    "use_new_terminal": true,
+    "tags": ["go-test"]
+  }
+]

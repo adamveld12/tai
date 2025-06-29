@@ -268,13 +268,15 @@ func (r *REPLScreen) setViewport() {
 			role = CurrentStyles().Subtle.Render(role)
 			renderedContent = CurrentStyles().Subtle.Render(renderedContent)
 		case state.RoleSystem:
-			role = CurrentStyles().Highlight.Bold(true).Render("System >")
-			renderedContent = CurrentStyles().Primary.Render(fmt.Sprintf("%s... %d more", renderedContent[:64], len(renderedContent)-64))
+			role = CurrentStyles().Accent.Render("System >")
+			renderedContent = CurrentStyles().Primary.Render(renderedContent)
+		case state.RoleTool:
+			role = CurrentStyles().Primary.Render(role)
 		case state.RoleAssistant:
 			role = CurrentStyles().Primary.Bold(true).Render(fmt.Sprintf("%s ~> %s", newState.Model.Provider, newState.Model.Name))
 			fallthrough
 		default:
-			role = CurrentStyles().Primary.Bold(true).Render(role)
+			role = CurrentStyles().Primary.Render(role)
 			if rendered, err := renderer.Render(msg.Content); err == nil {
 				renderedContent = rendered
 			}
@@ -289,7 +291,7 @@ func (r *REPLScreen) setViewport() {
 	}
 
 	r.viewport.SetContent(builder.String())
-	if r.autoscroll {
+	if r.autoscroll && r.viewport.ScrollPercent() < .9 {
 		r.viewport.GotoBottom()
 	}
 }

@@ -37,7 +37,7 @@ func NewLMStudioProvider(config ProviderConfig) (*LMStudioProvider, error) {
 	}
 
 	if config.Timeout == 0 {
-		config.Timeout = 60 * time.Second
+		config.Timeout = 300 * time.Second
 	}
 
 	clientConfig := openai.DefaultConfig(config.APIKey)

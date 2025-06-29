@@ -67,8 +67,10 @@ log/
 
 # Debug files
 debug
+__*
 pprof/
 *.pprof
+
 
 .claude/settings.local.json
 
