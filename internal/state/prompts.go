@@ -84,9 +84,7 @@ You are allowed to be proactive, but only when the user asks you to do something
 ## System Instructions
 What follow is the user supplied system prompt. Follow it closely, except in cases where it directly conflicts with the above instructions.
 
-<user prompt>
 {{ .Context.SystemPrompt }}
-</user prompt>
 
 `); err != nil {
 		log.Fatalf("Failed to parse system prompt template: %v", err)

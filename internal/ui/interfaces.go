@@ -13,6 +13,8 @@ type Screen interface {
 // Stack defines the interface for a screen stack
 type Stack interface {
 	tea.Model
+	OnStateChange(a state.Action, ns state.AppState, os state.AppState)
+	Run() error
 	Active() Screen
 	Push(Screen) int
 	Pop() Screen

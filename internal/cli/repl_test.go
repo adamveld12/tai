@@ -52,6 +52,13 @@ func (m *mockStack) View() string {
 	return "mock stack view"
 }
 
+func (m *mockStack) Run() error {
+	return nil
+}
+
+func (m *mockStack) OnStateChange(action state.Action, newState state.AppState, oldState state.AppState) {
+}
+
 // mockScreen is a mock implementation of ui.Screen for testing
 type mockScreen struct {
 	initCalled         bool
@@ -178,9 +185,6 @@ func TestNewReplHandler(t *testing.T) {
 			if handler.Config == nil {
 				t.Error("Config should not be nil")
 			}
-			if handler.Program == nil {
-				t.Error("Program should not be nil")
-			}
 
 			// Verify state configuration
 			state := handler.Dispatcher.GetState()
@@ -230,7 +234,6 @@ func TestReplHandler_Execute_StateWiring(t *testing.T) {
 		Provider:   mockProv,
 		Stack:      mockStack,
 		Config:     config,
-		Program:    nil, // We'll test without actually running the program
 	}
 
 	// Test that state change handler is properly wired

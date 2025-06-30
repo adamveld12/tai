@@ -1,12 +1,15 @@
 package ui
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/adamveld12/tai/internal/agent"
 	"github.com/adamveld12/tai/internal/llm"
 	"github.com/adamveld12/tai/internal/state"
 	"github.com/charmbracelet/bubbles/spinner"
@@ -20,8 +23,10 @@ import (
 
 // REPLScreen represents the REPLScreen UI model
 type REPLScreen struct {
+	agent.Agent
 	state.Dispatcher
-	llm.Provider
+	prompt     chan<- state.Message
+	response   <-chan agent.AgentStatus
 	input      textinput.Model
 	viewport   viewport.Model
 	swatch     stopwatch.Model
@@ -30,21 +35,44 @@ type REPLScreen struct {
 	height     int
 	ready      bool
 	autoscroll bool
+	mu         sync.Mutex
 }
 
 // NewREPL creates a new REPL instance
 func NewREPL(d state.Dispatcher, p llm.Provider) *REPLScreen {
-	repl := &REPLScreen{
-		Dispatcher: d,
+	agent, err := agent.Task(agent.TaskInput{
 		Provider:   p,
+		Dispatcher: d,
+		Name:       "orchestrator",
+	})
+
+	if err != nil {
+		log.Fatalf("💩 failed to create agent: %v", err)
+	}
+
+	prompts := make(chan state.Message, 1)
+	output := agent.Start(context.Background(), prompts)
+
+	repl := &REPLScreen{
+		Agent:      agent,
+		Dispatcher: d,
+		prompt:     prompts,
+		response:   output,
 		swatch:     stopwatch.New(),
-		input:      textinput.Model(ElementInput(">", "Type your message...")),
+		input:      textinput.Model(ElementInput(">", "")),
 		spinner:    spinner.New(spinner.WithSpinner(spinner.Points), spinner.WithStyle(CurrentStyles().Accent)),
 		viewport:   ElementViewport(80, 20),
 		autoscroll: true,
 	}
 
 	repl.swatch.Interval = time.Millisecond * 16
+	go func() {
+		for status := range output {
+			if status.Error == nil {
+				repl.setViewport()
+			}
+		}
+	}()
 
 	return repl
 }
@@ -57,7 +85,7 @@ func (r *REPLScreen) Init() tea.Cmd {
 func (r *REPLScreen) OnStateChange(action state.Action, newState, oldState state.AppState) (msg tea.Msg) {
 	msg = action
 	switch action.(type) {
-	case MessageAction, MessageChunkAction, ClearMessagesAction:
+	case agent.ChatCompletionStartedAction, agent.ChatCompletionCompletedAction, agent.MessageChunkAction, ClearMessagesAction:
 		r.setViewport()
 	}
 
@@ -70,9 +98,9 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	switch msg := msg.(type) {
-	case ChatCompletionStartedAction:
+	case agent.ChatCompletionStartedAction:
 		cmds = append(cmds, r.swatch.Reset(), r.swatch.Start(), r.spinner.Tick)
-	case ChatCompletionCompletedAction:
+	case agent.ChatCompletionCompletedAction:
 		r.spinner = spinner.New(spinner.WithSpinner(spinner.Points), spinner.WithStyle(CurrentStyles().Accent))
 		cmds = append(cmds, r.swatch.Stop())
 	case ClearMessagesAction:
@@ -94,15 +122,15 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		r.input.Focus()
 		r.ready = true
 
-	case tea.MouseButton:
-		switch msg {
+	case tea.MouseMsg:
+		switch msg.Button {
 		case tea.MouseButtonWheelUp:
 			r.autoscroll = false
-			r.viewport.ScrollUp(3)
 		case tea.MouseButtonWheelDown:
-			r.viewport.ScrollDown(3)
+			if r.viewport.ScrollPercent() >= .95 {
+				r.autoscroll = true
+			}
 		}
-		// Handle mouse actions if needed in future
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "ctrl+c", "ctrl+d":
@@ -113,9 +141,14 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case "enter":
 			if input, ok := r.handleTextInput(r.input.Value()); ok {
 				if strings.HasPrefix(input, ":") {
-					r.handleCommand(input)
-				} else if err := NewMessage(r.Dispatcher, r.Provider, state.RoleUser, input); err != nil {
-					log.Fatalf("💩 failed to create user message: %v", err)
+					return r.handleCommand(input)
+				} else {
+					r.prompt <- state.Message{
+						Role:      state.RoleUser,
+						Content:   input,
+						Timestamp: time.Now(),
+						ToolCalls: []state.ToolCall{},
+					}
 				}
 			}
 		default:
@@ -125,19 +158,16 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
+	// if r.autoscroll {
+	// 	r.viewport.GotoBottom()
+	// }
+
 	r.swatch, cmd = r.swatch.Update(msg)
 	cmds = append(cmds, cmd)
 	r.viewport, cmd = r.viewport.Update(msg)
 	cmds = append(cmds, cmd)
-
 	r.spinner, cmd = r.spinner.Update(msg)
 	cmds = append(cmds, cmd)
-
-	if r.viewport.ScrollPercent() <= .95 && r.autoscroll {
-		r.autoscroll = false
-	} else if r.viewport.ScrollPercent() > .95 {
-		r.autoscroll = true
-	}
 
 	return r, tea.Batch(cmds...)
 }
@@ -232,6 +262,7 @@ func (r *REPLScreen) handleTextInput(content string) (input string, ok bool) {
 
 // addToViewport adds content to the viewport
 func (r *REPLScreen) setViewport() {
+
 	newState := r.GetState()
 	var builder strings.Builder
 	var renderer *glamour.TermRenderer
@@ -290,8 +321,11 @@ func (r *REPLScreen) setViewport() {
 		)
 	}
 
+	r.mu.Lock()
 	r.viewport.SetContent(builder.String())
-	if r.autoscroll && r.viewport.ScrollPercent() < .9 {
+
+	if r.autoscroll {
 		r.viewport.GotoBottom()
 	}
+	r.mu.Unlock()
 }

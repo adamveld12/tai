@@ -7,17 +7,10 @@ import (
 	"github.com/adamveld12/tai/internal/state"
 )
 
-type SupportedProvider string
-
-const (
-	ModelNotAvailableError                   = "model not available"
-	ProviderOpenAI         SupportedProvider = "openai"
-)
-
 // Provider defines the interface for LLM providers
 type Provider interface {
 	// Name returns the provider name (e.g., "openai", "claude", "ollama")
-	Name() SupportedProvider
+	Name() state.SupportedProvider
 
 	// ChatCompletion sends a chat completion request and returns the response
 	ChatCompletion(ctx context.Context, req ChatRequest) (*ChatResponse, error)

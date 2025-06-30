@@ -84,10 +84,18 @@ type Context struct {
 	WorkingDirectory string    `json:"workingDirectory"`
 }
 
+type SupportedProvider string
+
+const (
+	ModelNotAvailableError                   = "model not available"
+	ProviderOpenAI         SupportedProvider = "openai"
+	ProviderLMStudio       SupportedProvider = "lmstudio"
+)
+
 type Model struct {
-	Provider string `json:"provider"`
-	Name     string `json:"name"`
-	Busy     bool   `json:"busy"`
+	Provider SupportedProvider `json:"provider"`
+	Name     string            `json:"name"`
+	Busy     bool              `json:"busy"`
 }
 
 type ActionID string

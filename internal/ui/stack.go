@@ -1,9 +1,15 @@
 package ui
 
-import tea "github.com/charmbracelet/bubbletea"
+import (
+	"fmt"
+
+	"github.com/adamveld12/tai/internal/state"
+	tea "github.com/charmbracelet/bubbletea"
+)
 
 // ScreenStack implements a stack of screens. It follows LIFO order.
 type ScreenStack struct {
+	program     *tea.Program
 	root        Screen
 	screenStack []Screen
 }
@@ -75,7 +81,25 @@ func (s *ScreenStack) View() string {
 	return "💩NOTHIN TO SEE HERE 💩"
 }
 
+func (ss *ScreenStack) Run() error {
+	if _, err := ss.program.Run(); err != nil {
+		return fmt.Errorf("😢 failed to start REPL:\n%w", err)
+	}
+
+	return nil
+}
+
+func (ss *ScreenStack) OnStateChange(a state.Action, as state.AppState, os state.AppState) {
+	cmd := ss.Active().OnStateChange(a, as, os)
+	ss.program.Send(cmd)
+}
+
 // NewScreenStack creates a new screen stack
 func NewScreenStack(root Screen) *ScreenStack {
-	return &ScreenStack{root: root}
+	ss := &ScreenStack{
+		root: root,
+	}
+
+	ss.program = tea.NewProgram(ss, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	return ss
 }
