@@ -90,8 +90,8 @@ func (ss *ScreenStack) Run() error {
 }
 
 func (ss *ScreenStack) OnStateChange(a state.Action, as state.AppState, os state.AppState) {
-	cmd := ss.Active().OnStateChange(a, as, os)
-	ss.program.Send(cmd)
+	// cmd := ss.Active().OnStateChange(a, as, os)
+	// ss.program.Send(cmd)
 }
 
 // NewScreenStack creates a new screen stack

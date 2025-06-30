@@ -38,7 +38,7 @@ func ParseArgs() (*Config, error) {
 	flag.BoolVar(&oneshot, "oneshot", false, "Run in one-shot mode (single prompt and exit)")
 	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
 	flag.BoolVar(&config.Help, "help", false, "Show help message")
-	flag.StringVar(&config.Provider, "provider", "lmstudio", "Specify the LLM provider to use (e.g., lmstudio)")
+	flag.StringVar(&config.Provider, "provider", "lmstudio", "Specify the LLM provider to use (e.g., lmstudio, openai)")
 	flag.StringVar(&config.SystemPrompt, "system", "", "Specify the system prompt to use")
 	flag.StringVar(&config.WorkingDirectory, "dir", wd, "Set the working directory (default: current directory)")
 
@@ -70,7 +70,7 @@ Options:
   -oneshot         Run in one-shot mode
   -verbose         Enable verbose logging
   -help            Show this help message
-  -provider        LLM provider to use (default: lmstudio)
+  -provider        LLM provider to use: lmstudio, openai (default: lmstudio)
   -system          System prompt to use
   -dir             Working directory (default: current directory)
 

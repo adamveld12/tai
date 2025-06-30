@@ -176,9 +176,6 @@ func TestNewReplHandler(t *testing.T) {
 			if handler.Dispatcher == nil {
 				t.Error("Dispatcher should not be nil")
 			}
-			if handler.Provider == nil {
-				t.Error("Provider should not be nil")
-			}
 			if handler.Stack == nil {
 				t.Error("Stack should not be nil")
 			}
@@ -194,11 +191,6 @@ func TestNewReplHandler(t *testing.T) {
 
 			if tt.expectedWorkingDir != "" && state.Context.WorkingDirectory != tt.expectedWorkingDir {
 				t.Errorf("WorkingDirectory = %q, want %q", state.Context.WorkingDirectory, tt.expectedWorkingDir)
-			}
-
-			// Verify provider name
-			if handler.Provider.Name() != "lmstudio" {
-				t.Errorf("Provider name = %q, want %q", handler.Provider.Name(), "lmstudio")
 			}
 		})
 	}
@@ -295,9 +287,17 @@ func TestReplHandler_ComponentIntegration(t *testing.T) {
 	})
 
 	t.Run("provider_functionality", func(t *testing.T) {
-		// Test that provider can return models
+		// Test that we can get a provider from the state
+		state := handler.Dispatcher.GetState()
+		provider, err := llm.GetProvider(handler.Dispatcher, state.Model.Provider, state.Model.Name)
+		if err != nil {
+			// LMStudio might not be running, so we'll allow this error
+			t.Logf("GetProvider() failed (expected if LMStudio not running): %v", err)
+			return
+		}
+		
 		ctx := context.Background()
-		models, err := handler.Provider.Models(ctx)
+		models, err := provider.Models(ctx)
 		if err != nil {
 			// LMStudio might not be running, so we'll allow this error
 			t.Logf("Provider.Models() failed (expected if LMStudio not running): %v", err)

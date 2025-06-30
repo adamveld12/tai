@@ -42,14 +42,17 @@ const (
 // =============================================================================
 
 // newTestProvider creates a provider for testing with proper error handling
-func newTestProvider(t *testing.T, config ProviderConfig) *LMStudioProvider {
+func newTestProvider(t *testing.T, config ProviderConfig) *OpenAIProvider {
 	t.Helper()
 
 	if config.BaseURL == "" {
 		config.BaseURL = "http://localhost:1234/v1"
 	}
+	if config.APIKey == "" {
+		config.APIKey = "test-key"
+	}
 
-	provider, err := NewLMStudioProvider(config)
+	provider, err := NewOpenAIProvider(config)
 	require.NoError(t, err, "failed to create provider")
 	require.NotNil(t, provider, "provider should not be nil")
 
@@ -200,20 +203,20 @@ func (ms *mockServer) RequestCount() int {
 
 // TestNewLMStudioProvider verifies provider creation with various configurations.
 // This ensures proper default handling and configuration validation.
-func TestNewLMStudioProvider(t *testing.T) {
+func TestNewOpenAIProvider(t *testing.T) {
 	tests := []struct {
 		name   string
 		config ProviderConfig
-		verify func(t *testing.T, p *LMStudioProvider)
+		verify func(t *testing.T, p *OpenAIProvider)
 	}{
 		{
 			name:   "defaults_applied_correctly",
 			config: ProviderConfig{},
-			verify: func(t *testing.T, p *LMStudioProvider) {
+			verify: func(t *testing.T, p *OpenAIProvider) {
 				assert.Equal(t, "http://localhost:1234/v1", p.config.BaseURL)
-				assert.Equal(t, "lm-studio", p.config.APIKey)
+				assert.Equal(t, "test-key", p.config.APIKey) // Override from newTestProvider
 				assert.Equal(t, "gemma-3n-e4b-it", p.config.DefaultModel)
-				assert.Equal(t, 60*time.Second, p.config.Timeout)
+				assert.Equal(t, 300*time.Second, p.config.Timeout)
 				assert.Equal(t, 0, p.config.MaxRetries) // Default is 0, retryRequest uses 3 if 0
 			},
 		},
@@ -226,7 +229,7 @@ func TestNewLMStudioProvider(t *testing.T) {
 				Timeout:      30 * time.Second,
 				MaxRetries:   5,
 			},
-			verify: func(t *testing.T, p *LMStudioProvider) {
+			verify: func(t *testing.T, p *OpenAIProvider) {
 				assert.Equal(t, "http://custom.example.com/v1", p.config.BaseURL)
 				assert.Equal(t, "custom-key", p.config.APIKey)
 				assert.Equal(t, "custom-model", p.config.DefaultModel)
@@ -251,7 +254,7 @@ func TestNewLMStudioProvider(t *testing.T) {
 
 // TestChatCompletion_SuccessScenarios verifies the ChatCompletion method handles
 // various successful request types correctly. This covers the main user workflows.
-func TestChatCompletion_SuccessScenarios(t *testing.T) {
+func TestOpenAIProvider_ChatCompletion_SuccessScenarios(t *testing.T) {
 	tests := []struct {
 		name        string
 		description string
@@ -412,7 +415,7 @@ func TestChatCompletion_SuccessScenarios(t *testing.T) {
 	}
 }
 
-func TestChatCompletion_ErrorScenarios(t *testing.T) {
+func TestOpenAIProvider_ChatCompletion_ErrorScenarios(t *testing.T) {
 	tests := []struct {
 		name             string
 		description      string
@@ -576,7 +579,7 @@ func TestChatCompletion_ErrorScenarios(t *testing.T) {
 
 // TestChatCompletion_ContextCancellation verifies proper context handling.
 // This is critical for preventing hung requests in production.
-func TestChatCompletion_ContextCancellation(t *testing.T) {
+func TestOpenAIProvider_ChatCompletion_ContextCancellation(t *testing.T) {
 	// Create a mock that delays longer than our context timeout
 	mock := newMockServer(t, mockResponse{
 		StatusCode: http.StatusOK,
@@ -668,7 +671,7 @@ func (sms *streamingMockServer) Close() {
 
 // TestStreamChatCompletion_SuccessScenarios verifies streaming functionality works correctly.
 // Streaming is critical for providing real-time user feedback in chat applications.
-func TestStreamChatCompletion_SuccessScenarios(t *testing.T) {
+func TestOpenAIProvider_StreamChatCompletion_SuccessScenarios(t *testing.T) {
 	tests := []struct {
 		name        string
 		description string
@@ -806,7 +809,7 @@ func TestStreamChatCompletion_SuccessScenarios(t *testing.T) {
 
 // TestStreamChatCompletion_ErrorScenarios verifies proper error handling in streaming.
 // Error handling in streaming is complex because errors can occur at different stages.
-func TestStreamChatCompletion_ErrorScenarios(t *testing.T) {
+func TestOpenAIProvider_StreamChatCompletion_ErrorScenarios(t *testing.T) {
 	t.Run("connection_error_before_stream", func(t *testing.T) {
 		// Use an invalid URL to trigger immediate connection error
 		provider := newTestProvider(t, ProviderConfig{
@@ -895,7 +898,7 @@ func TestStreamChatCompletion_ErrorScenarios(t *testing.T) {
 
 // TestStreamChatCompletion_GoroutineCleanup verifies that streaming doesn't leak goroutines.
 // This is critical for production systems that handle many concurrent streams.
-func TestStreamChatCompletion_GoroutineCleanup(t *testing.T) {
+func TestOpenAIProvider_StreamChatCompletion_GoroutineCleanup(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping goroutine cleanup test in short mode")
 	}
@@ -961,7 +964,7 @@ func TestStreamChatCompletion_GoroutineCleanup(t *testing.T) {
 //
 // This is critical because LMStudio can have transient failures when
 // loading models or under high load.
-func TestRetryLogic_ExponentialBackoff(t *testing.T) {
+func TestOpenAIProvider_RetryLogic_ExponentialBackoff(t *testing.T) {
 	tests := []struct {
 		name          string
 		description   string
@@ -1106,7 +1109,7 @@ func TestRetryLogic_ExponentialBackoff(t *testing.T) {
 
 // TestRetryLogic_ContextCancellation verifies context cancellation during retries.
 // Context cancellation should be respected immediately, even during backoff periods.
-func TestRetryLogic_ContextCancellation(t *testing.T) {
+func TestOpenAIProvider_RetryLogic_ContextCancellation(t *testing.T) {
 	// Create responses that would trigger retries
 	responses := []mockResponse{
 		{StatusCode: http.StatusInternalServerError, Error: errors.New("first error")},
@@ -1153,7 +1156,7 @@ func TestRetryLogic_ContextCancellation(t *testing.T) {
 
 // TestEdgeCases_RequestAndResponseValidation tests various edge cases that could
 // cause panics or unexpected behavior in production.
-func TestEdgeCases_RequestAndResponseValidation(t *testing.T) {
+func TestOpenAIProvider_EdgeCases_RequestAndResponseValidation(t *testing.T) {
 	t.Run("request_with_empty_messages", func(t *testing.T) {
 		mock := newMockServer(t, mockResponse{
 			StatusCode: http.StatusOK,
@@ -1264,16 +1267,20 @@ func TestEdgeCases_RequestAndResponseValidation(t *testing.T) {
 
 // TestProviderMetadata tests the simple metadata methods.
 // These are kept minimal as they provide little business value to test extensively.
-func TestProviderMetadata(t *testing.T) {
-	provider := newTestProvider(t, ProviderConfig{})
-
-	t.Run("name_returns_expected_value", func(t *testing.T) {
-		assert.Equal(t, ProviderLMStudio, provider.Name())
-	})
-
-	t.Run("models_returns_empty_slice", func(t *testing.T) {
+func TestOpenAIProvider_Metadata(t *testing.T) {
+	t.Run("lmstudio_provider", func(t *testing.T) {
+		provider := newTestProvider(t, ProviderConfig{BaseURL: "http://localhost:1234/v1"})
+		
+		assert.Equal(t, state.ProviderLMStudio, provider.Name())
+		
 		models, err := provider.Models(context.Background())
 		require.NoError(t, err)
 		assert.Empty(t, models, "LMStudio provider should return empty models list")
+	})
+	
+	t.Run("openai_provider", func(t *testing.T) {
+		provider := newTestProvider(t, ProviderConfig{BaseURL: "https://api.openai.com/v1"})
+		
+		assert.Equal(t, state.ProviderOpenAI, provider.Name())
 	})
 }

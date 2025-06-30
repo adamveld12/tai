@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"time"
 
@@ -12,28 +13,50 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
-const ProviderLMStudio SupportedProvider = "lmstudio"
-
-// LMStudioProvider implements the Provider interface for LM Studio
-type LMStudioProvider struct {
+// OpenAIProvider implements the Provider interface for OpenAI and OpenAI-compatible APIs
+type OpenAIProvider struct {
 	client       *openai.Client
 	config       ProviderConfig
 	defaultModel string
+	providerType state.SupportedProvider // Either ProviderOpenAI or ProviderLMStudio
 }
 
-// NewLMStudioProvider creates a new LM Studio provider instance
-func NewLMStudioProvider(config ProviderConfig) (*LMStudioProvider, error) {
-	if config.BaseURL == "" {
-		config.BaseURL = "http://localhost:1234/v1"
-	}
+// NewOpenAIProvider creates a new OpenAI provider instance
+func NewOpenAIProvider(config ProviderConfig) (*OpenAIProvider, error) {
+	// Detect provider type based on BaseURL
+	var providerType state.SupportedProvider
+	if config.BaseURL == "" || strings.Contains(config.BaseURL, "openai.com") {
+		providerType = state.ProviderOpenAI
+		if config.BaseURL == "" {
+			config.BaseURL = "https://api.openai.com/v1"
+		}
 
-	if config.APIKey == "" {
-		// LM Studio doesn't require an API key, but the OpenAI client expects one
-		config.APIKey = "lm-studio"
-	}
-
-	if config.DefaultModel == "" {
-		config.DefaultModel = "gemma-3n-e4b-it"
+		if config.APIKey == "" {
+			if config.APIKey = os.Getenv("OPENAI_API_KEY"); config.APIKey == "" {
+				return nil, fmt.Errorf("API key is required for OpenAI provider")
+			}
+		}
+		if config.DefaultModel == "" {
+			config.DefaultModel = "o4-mini"
+		}
+	} else if strings.Contains(config.BaseURL, "localhost") || config.BaseURL == "http://localhost:1234/v1" {
+		providerType = state.ProviderLMStudio
+		if config.BaseURL == "" {
+			config.BaseURL = "http://localhost:1234/v1"
+		}
+		if config.APIKey == "" {
+			// LM Studio doesn't require an API key, but the OpenAI client expects one
+			config.APIKey = "lm-studio"
+		}
+		if config.DefaultModel == "" {
+			config.DefaultModel = "gemma-3n-e4b-it"
+		}
+	} else {
+		// Generic OpenAI-compatible API
+		providerType = state.ProviderOpenAI
+		if config.APIKey == "" {
+			return nil, fmt.Errorf("API key is required for OpenAI-compatible provider")
+		}
 	}
 
 	if config.Timeout == 0 {
@@ -44,20 +67,33 @@ func NewLMStudioProvider(config ProviderConfig) (*LMStudioProvider, error) {
 	clientConfig.BaseURL = config.BaseURL
 	client := openai.NewClientWithConfig(clientConfig)
 
-	return &LMStudioProvider{
+	return &OpenAIProvider{
 		client:       client,
 		config:       config,
 		defaultModel: config.DefaultModel,
+		providerType: providerType,
 	}, nil
 }
 
+// NewLMStudioProvider creates a new LM Studio provider instance (backward compatibility)
+func NewLMStudioProvider(config ProviderConfig) (*OpenAIProvider, error) {
+	if config.BaseURL == "" {
+		config.BaseURL = "http://localhost:1234/v1"
+	}
+	return NewOpenAIProvider(config)
+}
+
+func (p *OpenAIProvider) Model() string {
+	return p.defaultModel
+}
+
 // Name returns the provider name
-func (p *LMStudioProvider) Name() SupportedProvider {
-	return ProviderLMStudio
+func (p *OpenAIProvider) Name() state.SupportedProvider {
+	return p.providerType
 }
 
 // ChatCompletion sends a chat completion request and returns the response
-func (p *LMStudioProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
+func (p *OpenAIProvider) ChatCompletion(ctx context.Context, req ChatRequest) (*ChatResponse, error) {
 	// Convert our ChatRequest to OpenAI format
 	openAIReq := p.convertToOpenAIRequest(req, false)
 
@@ -85,7 +121,7 @@ func (p *LMStudioProvider) ChatCompletion(ctx context.Context, req ChatRequest) 
 }
 
 // StreamChatCompletion sends a streaming chat completion request
-func (p *LMStudioProvider) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-chan ChatStreamChunk, error) {
+func (p *OpenAIProvider) StreamChatCompletion(ctx context.Context, req ChatRequest) (<-chan ChatStreamChunk, error) {
 	// Convert our ChatRequest to OpenAI format
 	openAIReq := p.convertToOpenAIRequest(req, true)
 
@@ -156,14 +192,32 @@ func (p *LMStudioProvider) StreamChatCompletion(ctx context.Context, req ChatReq
 	return chunkChan, nil
 }
 
-// We don't support listing models for LM Studio as it typically runs local models
-// Empty list is returned to indicate no specific models are available
-func (p *LMStudioProvider) Models(ctx context.Context) ([]string, error) {
-	return []string{}, nil
+// Models returns the list of available models
+func (p *OpenAIProvider) Models(ctx context.Context) ([]string, error) {
+	if p.providerType == state.ProviderLMStudio {
+		// LM Studio doesn't reliably support model listing
+		return []string{}, nil
+	}
+
+	// For OpenAI and OpenAI-compatible providers, fetch the model list
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+
+	models, err := p.client.ListModels(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list models: %w", err)
+	}
+
+	modelNames := make([]string, 0, len(models.Models))
+	for _, model := range models.Models {
+		modelNames = append(modelNames, model.ID)
+	}
+
+	return modelNames, nil
 }
 
 // convertToOpenAIRequest converts our ChatRequest to OpenAI format
-func (p *LMStudioProvider) convertToOpenAIRequest(req ChatRequest, stream bool) openai.ChatCompletionRequest {
+func (p *OpenAIProvider) convertToOpenAIRequest(req ChatRequest, stream bool) openai.ChatCompletionRequest {
 	model := req.Model
 	if model == "" {
 		model = p.defaultModel
@@ -238,7 +292,7 @@ func (p *LMStudioProvider) convertToOpenAIRequest(req ChatRequest, stream bool) 
 }
 
 // convertFromOpenAIResponse converts OpenAI response to our format
-func (p *LMStudioProvider) convertFromOpenAIResponse(resp openai.ChatCompletionResponse, duration time.Duration) *ChatResponse {
+func (p *OpenAIProvider) convertFromOpenAIResponse(resp openai.ChatCompletionResponse, duration time.Duration) *ChatResponse {
 	response := &ChatResponse{
 		Model:     resp.Model,
 		CreatedAt: time.Unix(resp.Created, 0),
@@ -266,7 +320,7 @@ func (p *LMStudioProvider) convertFromOpenAIResponse(resp openai.ChatCompletionR
 }
 
 // convertToolCallsToOpenAI converts our tool calls to OpenAI format
-func (p *LMStudioProvider) convertToolCallsToOpenAI(toolCalls []state.ToolCall) []openai.ToolCall {
+func (p *OpenAIProvider) convertToolCallsToOpenAI(toolCalls []state.ToolCall) []openai.ToolCall {
 	openAIToolCalls := make([]openai.ToolCall, 0, len(toolCalls))
 	for _, tc := range toolCalls {
 		openAIToolCalls = append(openAIToolCalls, openai.ToolCall{
@@ -282,7 +336,7 @@ func (p *LMStudioProvider) convertToolCallsToOpenAI(toolCalls []state.ToolCall) 
 }
 
 // convertToolCallsFromOpenAI converts OpenAI tool calls to our format
-func (p *LMStudioProvider) convertToolCallsFromOpenAI(openAIToolCalls []openai.ToolCall) []state.ToolCall {
+func (p *OpenAIProvider) convertToolCallsFromOpenAI(openAIToolCalls []openai.ToolCall) []state.ToolCall {
 	toolCalls := make([]state.ToolCall, 0, len(openAIToolCalls))
 	for _, tc := range openAIToolCalls {
 		toolCalls = append(toolCalls, state.ToolCall{
@@ -298,7 +352,7 @@ func (p *LMStudioProvider) convertToolCallsFromOpenAI(openAIToolCalls []openai.T
 }
 
 // Retry logic for failed requests
-func (p *LMStudioProvider) retryRequest(ctx context.Context, fn func() error) error {
+func (p *OpenAIProvider) retryRequest(ctx context.Context, fn func() error) error {
 	maxRetries := p.config.MaxRetries
 	if maxRetries <= 0 {
 		maxRetries = 3

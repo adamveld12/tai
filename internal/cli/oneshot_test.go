@@ -19,8 +19,8 @@ type mockProvider struct {
 	request  llm.ChatRequest
 }
 
-func (m *mockProvider) Name() llm.SupportedProvider {
-	return llm.SupportedProvider("mock")
+func (m *mockProvider) Name() state.SupportedProvider {
+	return state.SupportedProvider("mock")
 }
 
 func (m *mockProvider) ChatCompletion(ctx context.Context, req llm.ChatRequest) (*llm.ChatResponse, error) {
@@ -35,6 +35,10 @@ func (m *mockProvider) StreamChatCompletion(ctx context.Context, req llm.ChatReq
 
 func (m *mockProvider) Models(ctx context.Context) ([]string, error) {
 	return []string{"mock-model"}, nil
+}
+
+func (m *mockProvider) Model() string {
+	return "mock-model"
 }
 
 // mockDispatcher is a mock implementation of state.Dispatcher for testing

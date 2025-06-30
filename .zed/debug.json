@@ -12,5 +12,16 @@
     "args": ["-provider", "lmstudio"],
     "cwd": "${ZED_WORKTREE_ROOT}",
     "output": "build"
+  },
+
+  {
+    "label": "Run tai with openai provider",
+    "adapter": "Delve",
+    "request": "launch",
+    "mode": "debug",
+    "program": "./cmd/tai",
+    "args": ["-provider", "openai"],
+    "cwd": "${ZED_WORKTREE_ROOT}",
+    "output": "build"
   }
 ]

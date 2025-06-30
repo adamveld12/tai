@@ -23,13 +23,23 @@ type OneShotHandler struct {
 
 // NewOneShotHandler creates a new one-shot handler
 func NewOneShotHandler(config *Config) *OneShotHandler {
-	provider, err := llm.NewLMStudioProvider(llm.ProviderConfig{})
-
-	if err != nil {
-		log.Fatalf("Failed to initialize LLM provider: %v", err)
+	// Determine provider based on config
+	var providerType state.SupportedProvider
+	switch config.Provider {
+	case "openai":
+		providerType = state.ProviderOpenAI
+	case "lmstudio":
+		providerType = state.ProviderLMStudio
+	default:
+		providerType = state.ProviderLMStudio // default
 	}
 
 	s := state.NewMemoryState("", config.WorkingDirectory, time.Now().Format("20060102150405"))
+
+	provider, err := llm.GetProvider(s, providerType, "")
+	if err != nil {
+		log.Fatalf("Failed to initialize LLM provider: %v", err)
+	}
 
 	return &OneShotHandler{
 		Dispatcher: s,

@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"fmt"
 	"time"
 
 	"github.com/adamveld12/tai/internal/state"
@@ -39,9 +38,7 @@ func (a MessageChunkAction) Execute(s state.AppState) (state.AppState, error) {
 	// find last assistant message with same ID and append to it
 	for idx, msg := range s.Context.Messages {
 		if msg.Role == a.Role && msg.Timestamp.Equal(a.Timestamp) {
-			a.Content = fmt.Sprintf("%s%s", msg.Content, a.Content)
-			s.Context.Messages = append(s.Context.Messages[:idx], a.Message)
-			s.Context.Updated = time.Now()
+			s.Context.Messages[idx].Content = a.Content
 			return s, nil
 		}
 	}

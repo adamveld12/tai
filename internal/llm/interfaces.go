@@ -20,6 +20,8 @@ type Provider interface {
 
 	// Models returns the list of available models for this provider
 	Models(ctx context.Context) ([]string, error)
+
+	Model() string
 }
 
 // ChatRequest represents a request to the language model

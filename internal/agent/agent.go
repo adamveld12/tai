@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/adamveld12/tai/internal/llm"
@@ -23,6 +24,7 @@ func (a *agentImpl) messageHandler(ctx context.Context, input state.Message) {
 		Role:    input.Role,
 		Content: input.Content,
 	})
+	a.output <- AgentStatus{Success: true, Error: nil, Message: input}
 
 	os := dispatcher.GetState()
 	req := llm.ChatRequest{
@@ -42,6 +44,7 @@ func (a *agentImpl) messageHandler(ctx context.Context, input state.Message) {
 	}
 
 	go func() {
+		var builder strings.Builder
 		outMsgTime := time.Now()
 		var outMsg state.Message
 		for chunk := range res {
@@ -53,6 +56,7 @@ func (a *agentImpl) messageHandler(ctx context.Context, input state.Message) {
 					Error:   err,
 				})
 				return
+
 			default:
 				if chunk.Error != nil {
 					err = ctx.Err()
@@ -62,9 +66,10 @@ func (a *agentImpl) messageHandler(ctx context.Context, input state.Message) {
 					})
 					return
 				} else {
+					builder.WriteString(chunk.Delta)
 					chunkMsg := state.Message{
 						Role:      state.RoleAssistant,
-						Content:   chunk.Delta,
+						Content:   builder.String(),
 						Timestamp: outMsgTime,
 						Usage: state.TokenUsage{
 							Prompt:     chunk.Usage.PromptTokens,
@@ -72,20 +77,21 @@ func (a *agentImpl) messageHandler(ctx context.Context, input state.Message) {
 							Total:      chunk.Usage.TotalTokens,
 						},
 					}
-					updatedContent := fmt.Sprintf("%s%s", outMsg.Content, chunk.Delta)
-					outMsg = chunkMsg
-					outMsg.Content = updatedContent
 
+					a.output <- AgentStatus{Success: true, Error: nil, Message: chunkMsg}
 					a.Dispatch(MessageChunkAction{Message: chunkMsg})
+					outMsg = chunkMsg
+
 				}
 			}
 		}
 
+		outMsg.Content = builder.String()
 		a.Dispatch(ChatCompletionCompletedAction{Success: true, Message: outMsg})
 	}()
 }
 
-func (a *agentImpl) OnStateChange(action state.Action, newState, oldState state.AppState) {
+func (a *agentImpl) onStateChange(action state.Action, newState, oldState state.AppState) {
 	switch action := action.(type) {
 	case ChatCompletionStartedAction:
 	case ChatCompletionCompletedAction:
@@ -118,26 +124,21 @@ func (a *agentImpl) String() string {
 }
 
 type TaskInput struct {
-	llm.Provider
 	state.Dispatcher
+	Provider         state.SupportedProvider
 	Name             string
 	SystemPrompt     string
 	WorkingDirectory string
 }
 
 func Task(input TaskInput) (Agent, error) {
-	if input.Provider == nil {
-		return nil, fmt.Errorf("no provider specified")
-	}
-
 	if input.Name == "" {
 		return nil, fmt.Errorf("no name specified")
 	}
 
 	ag := &agentImpl{
-		output:   make(chan AgentStatus),
-		name:     input.Name,
-		Provider: input.Provider,
+		output: make(chan AgentStatus),
+		name:   input.Name,
 	}
 
 	if input.Dispatcher != nil {
@@ -158,6 +159,16 @@ func Task(input TaskInput) (Agent, error) {
 	}
 
 	ag.Dispatcher = input.Dispatcher
+	ag.Dispatcher.OnStateChange(ag.onStateChange)
+
+	if input.Provider == "" {
+		input.Provider = ag.Dispatcher.GetState().Model.Provider
+	}
+
+	var err error
+	if ag.Provider, err = llm.GetProvider(ag.Dispatcher, input.Provider, ""); err != nil {
+		return nil, fmt.Errorf("failed to initialize LLM provider: %w", err)
+	}
 
 	return ag, nil
 }

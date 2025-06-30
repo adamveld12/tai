@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/adamveld12/tai/internal/agent"
-	"github.com/adamveld12/tai/internal/llm"
 	"github.com/adamveld12/tai/internal/state"
 	"github.com/charmbracelet/bubbles/spinner"
 	"github.com/charmbracelet/bubbles/stopwatch"
@@ -39,9 +38,8 @@ type REPLScreen struct {
 }
 
 // NewREPL creates a new REPL instance
-func NewREPL(d state.Dispatcher, p llm.Provider) *REPLScreen {
+func NewREPL(d state.Dispatcher) *REPLScreen {
 	agent, err := agent.Task(agent.TaskInput{
-		Provider:   p,
 		Dispatcher: d,
 		Name:       "orchestrator",
 	})
@@ -66,9 +64,17 @@ func NewREPL(d state.Dispatcher, p llm.Provider) *REPLScreen {
 	}
 
 	repl.swatch.Interval = time.Millisecond * 16
+	repl.setViewport()
+
 	go func() {
-		for status := range output {
-			if status.Error == nil {
+		for {
+			select {
+			case <-context.Background().Done():
+				return
+			case _, ok := <-output:
+				if !ok {
+					return
+				}
 				repl.setViewport()
 			}
 		}
@@ -84,11 +90,6 @@ func (r *REPLScreen) Init() tea.Cmd {
 
 func (r *REPLScreen) OnStateChange(action state.Action, newState, oldState state.AppState) (msg tea.Msg) {
 	msg = action
-	switch action.(type) {
-	case agent.ChatCompletionStartedAction, agent.ChatCompletionCompletedAction, agent.MessageChunkAction, ClearMessagesAction:
-		r.setViewport()
-	}
-
 	return
 }
 
@@ -97,14 +98,16 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	var cmds []tea.Cmd
 
-	switch msg := msg.(type) {
-	case agent.ChatCompletionStartedAction:
-		cmds = append(cmds, r.swatch.Reset(), r.swatch.Start(), r.spinner.Tick)
-	case agent.ChatCompletionCompletedAction:
+	s := r.Dispatcher.GetState()
+	if !s.Model.Busy {
 		r.spinner = spinner.New(spinner.WithSpinner(spinner.Points), spinner.WithStyle(CurrentStyles().Accent))
 		cmds = append(cmds, r.swatch.Stop())
-	case ClearMessagesAction:
-		r.viewport.GotoTop()
+	}
+
+	r.viewport, cmd = r.viewport.Update(msg)
+	cmds = append(cmds, cmd)
+
+	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		r.width = msg.Width
 		r.height = msg.Height
@@ -118,7 +121,6 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		viewportHeight := msg.Height - headerHeight - footerHeight
 		r.viewport.Width = msg.Width
 		r.viewport.Height = viewportHeight
-		r.setViewport()
 		r.input.Focus()
 		r.ready = true
 
@@ -137,12 +139,13 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return r, tea.Quit
 		case "esc":
 			r.input.Reset()
-			r.setViewport()
+
 		case "enter":
 			if input, ok := r.handleTextInput(r.input.Value()); ok {
 				if strings.HasPrefix(input, ":") {
 					return r.handleCommand(input)
 				} else {
+					cmds = append(cmds, r.swatch.Reset(), r.swatch.Start(), r.spinner.Tick)
 					r.prompt <- state.Message{
 						Role:      state.RoleUser,
 						Content:   input,
@@ -158,14 +161,9 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	// if r.autoscroll {
-	// 	r.viewport.GotoBottom()
-	// }
-
 	r.swatch, cmd = r.swatch.Update(msg)
 	cmds = append(cmds, cmd)
-	r.viewport, cmd = r.viewport.Update(msg)
-	cmds = append(cmds, cmd)
+
 	r.spinner, cmd = r.spinner.Update(msg)
 	cmds = append(cmds, cmd)
 
@@ -174,6 +172,9 @@ func (r *REPLScreen) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the REPL interface
 func (r *REPLScreen) View() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
 	if !r.ready {
 		return "Initializing..."
 	}
@@ -213,6 +214,8 @@ func (r *REPLScreen) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 		return r, tea.Quit
 	case ":clear", ":c":
 		r.Dispatcher.Dispatch(ClearMessagesAction{})
+		r.viewport.GotoTop()
+		r.setViewport()
 		return r, nil
 	case ":help", ":h":
 		helpText := `# TAI Commands
@@ -245,7 +248,7 @@ func (r *REPLScreen) handleCommand(cmd string) (tea.Model, tea.Cmd) {
 		// Wrap error message based on viewport width
 		errorMsg := fmt.Sprintf("Unknown command: %s (type :help for available commands)\n", cmd)
 		wrappedError := wordwrap.String(errorMsg, wrapWidth)
-		r.viewport.SetContent(wrappedError)
+		r.viewport.SetContent(CurrentStyles().Error.Render(wrappedError))
 		r.input.SetValue("")
 		return r, nil
 	}
@@ -296,7 +299,7 @@ func (r *REPLScreen) setViewport() {
 
 		switch msg.Role {
 		case state.RoleUser:
-			role = CurrentStyles().Subtle.Render(role)
+			role = CurrentStyles().Subtle.Render(">")
 			renderedContent = CurrentStyles().Subtle.Render(renderedContent)
 		case state.RoleSystem:
 			role = CurrentStyles().Accent.Render("System >")
@@ -304,7 +307,7 @@ func (r *REPLScreen) setViewport() {
 		case state.RoleTool:
 			role = CurrentStyles().Primary.Render(role)
 		case state.RoleAssistant:
-			role = CurrentStyles().Primary.Bold(true).Render(fmt.Sprintf("%s ~> %s", newState.Model.Provider, newState.Model.Name))
+			role = CurrentStyles().Primary.Bold(true).Render(fmt.Sprintf("%s ~> %s \n", newState.Model.Provider, newState.Model.Name))
 			fallthrough
 		default:
 			role = CurrentStyles().Primary.Render(role)
@@ -315,17 +318,15 @@ func (r *REPLScreen) setViewport() {
 
 		fmt.Fprintf(
 			&builder,
-			"%s\n\t%s\n\n",
+			"%s\t%s\n\n",
 			role,
 			renderedContent,
 		)
 	}
 
-	r.mu.Lock()
 	r.viewport.SetContent(builder.String())
 
 	if r.autoscroll {
 		r.viewport.GotoBottom()
 	}
-	r.mu.Unlock()
 }

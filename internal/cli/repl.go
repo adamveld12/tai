@@ -17,21 +17,30 @@ type ReplHandler struct {
 }
 
 func NewReplHandler(config *Config) *ReplHandler {
-	provider, err := llm.NewLMStudioProvider(llm.ProviderConfig{})
-	if err != nil {
-		log.Fatalf("Failed to initialize LLM provider: %v", err)
+	// Determine provider based on config
+	var providerType state.SupportedProvider
+	switch config.Provider {
+	case "lmstudio":
+		providerType = state.ProviderLMStudio // default
+	case "openai":
+		providerType = state.ProviderOpenAI
+	default:
+		log.Fatal("💩 unknown provider, must be 'openai' or 'lmstudio'")
 	}
 
 	s := state.NewMemoryState(config.SystemPrompt, config.WorkingDirectory, "")
-	stack := ui.NewScreenStack(
-		ui.NewREPL(s, provider),
-	)
+	settings := llm.ChangeProviderSettingsAction{
+		Provider: providerType,
+		Model:    "", // Use default model
+	}
+	s.Dispatch(settings)
 
-	s.OnStateChange(stack.OnStateChange)
+	stack := ui.NewScreenStack(
+		ui.NewREPL(s),
+	)
 
 	return &ReplHandler{
 		Dispatcher: s,
-		Provider:   provider,
 		Stack:      stack,
 		Config:     config,
 	}
